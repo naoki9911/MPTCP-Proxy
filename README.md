@@ -18,12 +18,12 @@ Usage of ./mptcp-proxy:
 - Ubuntu 22.04 LTS
 
 # Testing Environment with docker-compose
-You can test MPTCP-Proxy with docker-compose(`test/docker-compose.yml`)
+You can test MPTCP-Proxy with docker-compose(`test/simple/docker-compose.yml`)
 
 ![Test Environment](/assets/test-env.png)
 
 ```console
-$ cd test
+$ cd test/simple
 $ docker-compose up -d
 $ docker-compose exec client /bin/bash
 
