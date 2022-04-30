@@ -1,0 +1,61 @@
+version: '3'
+services:
+  server:
+    build:
+      context: ../../
+      dockerfile: ./test/Dockerfile
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - "./server/run.sh:/run.sh:ro"
+    networks:
+      network_a:
+        ipv4_address: 10.123.200.2
+      
+  router:
+    build:
+      context: ../../
+      dockerfile: ./test/Dockerfile
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - "./router/run.sh:/run.sh:ro"
+    networks:
+      network_a:
+        ipv4_address: 10.123.200.3
+      network_b:
+        ipv4_address: 10.123.201.2
+      network_c:
+        ipv4_address: 10.123.202.2
+
+  client:
+    build:
+      context: ../../
+      dockerfile: ./test/Dockerfile
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - "./client/run.sh:/run.sh:ro"
+      - "./dump:/dump"
+    networks:
+      network_b:
+        ipv4_address: 10.123.201.3
+      network_c:
+        ipv4_address: 10.123.202.3
+
+networks:
+  network_a:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.123.200.0/24
+  network_b:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.123.201.0/24
+  network_c:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.123.202.0/24
