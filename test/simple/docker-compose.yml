@@ -23,6 +23,7 @@ services:
       - NET_ADMIN
     volumes:
       - "./client/run.sh:/run.sh:ro"
+      - "./dump:/dump"
     networks:
       network_a:
         ipv4_address: 10.123.200.3
