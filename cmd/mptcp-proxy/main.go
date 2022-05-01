@@ -1,10 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
@@ -99,11 +99,11 @@ func doProxy(bindProtocol, connectProtocol int) {
 			log.Fatal(err)
 		}
 		log.Printf("Accepted connection (fd=%d)", fd2)
-		go handleConnection(fd2, rAddr, connectProtocol)
+		go handleConnection(fd2, rAddr.(*syscall.SockaddrInet4), connectProtocol)
 	}
 }
 
-func handleConnection(fd int, ra syscall.Sockaddr, connectProtocol int) error {
+func handleConnection(fd int, ra *syscall.SockaddrInet4, connectProtocol int) error {
 	defer syscall.Close(fd)
 
 	rFd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, connectProtocol)
@@ -124,31 +124,45 @@ func handleConnection(fd int, ra syscall.Sockaddr, connectProtocol int) error {
 		return err
 	}
 
-	log.Printf("connected to remote server(addr=%s port=%d)", remoteAddr.String(), remotePort)
+	clientAddr := net.IPv4(ra.Addr[0], ra.Addr[1], ra.Addr[2], ra.Addr[3])
+	endpoints := fmt.Sprintf("src=%s:%d dst=%s:%d", clientAddr.String(), ra.Port, remoteAddr.String(), remotePort)
+	log.Printf("connected to remote(%s)", endpoints)
 
-	var wg sync.WaitGroup
+	done1 := make(chan bool)
+	done2 := make(chan bool)
 
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		err := copyFdStream(fd, rFd, "fd -> rFd")
 		if err != nil {
 			log.Error(err)
 		}
+		done1 <- true
+		log.Debugf("fd -> rFd finished")
 	}()
 
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		err := copyFdStream(rFd, fd, "rFd -> fd")
 		if err != nil {
 			log.Error(err)
 		}
+		done2 <- true
+		log.Debugf("rFd -> fd finished")
 	}()
 
-	wg.Wait()
+	select {
+	case <-done1:
+		log.Debugf("done1 close")
+		syscall.Close(fd)
+		syscall.Close(rFd)
+		log.Debugf("done1 closed")
+	case <-done2:
+		log.Debugf("done2 close")
+		syscall.Close(fd)
+		syscall.Close(rFd)
+		log.Debugf("done2 closed")
+	}
 
-	log.Printf("proxy finised")
+	log.Printf("proxy finished(%s)", endpoints)
 	return nil
 }
 
