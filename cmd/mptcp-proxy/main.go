@@ -21,6 +21,10 @@ var (
 )
 
 func main() {
+	if log.GetLevel() == log.DebugLevel {
+		log.SetReportCaller(true)
+	}
+
 	var err error
 
 	flag.StringVarP(&mode, "mode", "m", "", "specify mode (server or client)")
@@ -128,61 +132,103 @@ func handleConnection(fd int, ra *syscall.SockaddrInet4, connectProtocol int) er
 	endpoints := fmt.Sprintf("src=%s:%d dst=%s:%d", clientAddr.String(), ra.Port, remoteAddr.String(), remotePort)
 	log.Printf("connected to remote(%s)", endpoints)
 
-	done1 := make(chan bool)
-	done2 := make(chan bool)
-
-	go func() {
-		err := copyFdStream(fd, rFd, "fd -> rFd")
-		if err != nil {
-			log.Error(err)
-		}
-		done1 <- true
-		log.Debugf("fd -> rFd finished")
-	}()
-
-	go func() {
-		err := copyFdStream(rFd, fd, "rFd -> fd")
-		if err != nil {
-			log.Error(err)
-		}
-		done2 <- true
-		log.Debugf("rFd -> fd finished")
-	}()
-
-	select {
-	case <-done1:
-		log.Debugf("done1 close")
-		syscall.Close(fd)
-		syscall.Close(rFd)
-		log.Debugf("done1 closed")
-	case <-done2:
-		log.Debugf("done2 close")
-		syscall.Close(fd)
-		syscall.Close(rFd)
-		log.Debugf("done2 closed")
+	err = copyFdStream(rFd, fd)
+	if err != nil {
+		log.Error(err)
 	}
 
 	log.Printf("proxy finished(%s)", endpoints)
 	return nil
 }
 
-func copyFdStream(fd1 int, fd2 int, logPrefix string) error {
+func copyFdStream(fd1 int, fd2 int) error {
+	epfd, err := syscall.EpollCreate1(0)
+	if err != nil {
+		return err
+	}
+	defer syscall.Close(epfd)
+
+	var eventFd1 syscall.EpollEvent
+	var eventFd2 syscall.EpollEvent
+	var events [10]syscall.EpollEvent
+
+	eventFd1.Events = syscall.EPOLLIN | syscall.EPOLLRDHUP
+	eventFd1.Fd = int32(fd1)
+	err = syscall.EpollCtl(epfd, syscall.EPOLL_CTL_ADD, fd1, &eventFd1)
+	if err != nil {
+		return err
+	}
+
+	eventFd2.Events = syscall.EPOLLIN | syscall.EPOLLRDHUP
+	eventFd2.Fd = int32(fd2)
+	err = syscall.EpollCtl(epfd, syscall.EPOLL_CTL_ADD, fd2, &eventFd2)
+	if err != nil {
+		return err
+	}
+
+	err = syscall.SetNonblock(fd1, true)
+	if err != nil {
+		return err
+	}
+
+	err = syscall.SetNonblock(fd2, true)
+	if err != nil {
+		return err
+	}
+
 	b := make([]byte, 65535)
 	for {
-		readSize, err := syscall.Read(fd1, b)
+		nevents, err := syscall.EpollWait(epfd, events[:], -1)
 		if err != nil {
+			// goroutine can cause EINTR
+			if err == syscall.EINTR {
+				continue
+			}
+			log.Error("EpollWait")
 			return err
 		}
 
-		if readSize == 0 {
+		close := false
+		for ev := 0; ev < nevents; ev++ {
+			if events[ev].Events&syscall.EPOLLRDHUP > 0 {
+				close = true
+			}
+		}
+
+		for ev := 0; ev < nevents; ev++ {
+			if events[ev].Events&syscall.EPOLLIN == 0 {
+				continue
+			}
+			close = false
+
+			readFd := int(events[ev].Fd)
+			var writeFd int
+			if readFd == fd1 {
+				writeFd = fd2
+			} else {
+				writeFd = fd1
+			}
+
+			readSize, err := syscall.Read(readFd, b)
+			if err != nil {
+				return err
+			}
+
+			if readSize == 0 {
+				log.Debugf("READ SIZE == 0")
+				return nil
+			}
+
+			writeSize, err := syscall.Write(writeFd, b[:readSize])
+			if err != nil {
+				return err
+			}
+			log.Debugf("Write(size=%d)", writeSize)
+		}
+
+		if close {
 			return nil
 		}
-
-		writeSize, err := syscall.Write(fd2, b[:readSize])
-		if err != nil {
-			return err
-		}
-		log.Debugf("%s Write(size=%d)", logPrefix, writeSize)
 	}
 
 	// return nil

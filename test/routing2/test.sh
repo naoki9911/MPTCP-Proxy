@@ -13,6 +13,7 @@ if [ -f $MONITOR_FILE ]; then
     rm $MONITOR_FILE
 fi
 
+docker-compose build
 docker-compose up -d
 
 docker-compose exec -T client ip mptcp monitor > $MONITOR_FILE &
@@ -25,6 +26,6 @@ check $MONITOR_FILE 'CREATED' 2
 check $MONITOR_FILE ' ESTABLISHED' 2
 check $MONITOR_FILE 'ANNOUNCED' 0
 check $MONITOR_FILE 'SF_ESTABLISHED' 2
-check $MONITOR_FILE 'CLOSED' 1
+check $MONITOR_FILE 'CLOSED' 2
 
 rm $MONITOR_FILE
