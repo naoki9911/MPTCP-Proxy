@@ -166,16 +166,6 @@ func copyFdStream(fd1 int, fd2 int) error {
 		return err
 	}
 
-	err = syscall.SetNonblock(fd1, true)
-	if err != nil {
-		return err
-	}
-
-	err = syscall.SetNonblock(fd2, true)
-	if err != nil {
-		return err
-	}
-
 	b := make([]byte, 65535)
 	for {
 		nevents, err := syscall.EpollWait(epfd, events[:], -1)
@@ -209,8 +199,9 @@ func copyFdStream(fd1 int, fd2 int) error {
 				writeFd = fd1
 			}
 
-			readSize, err := syscall.Read(readFd, b)
+			readSize, _, err := syscall.Recvfrom(readFd, b, syscall.MSG_DONTWAIT)
 			if err != nil {
+				log.Errorf("Read")
 				return err
 			}
 
@@ -221,6 +212,7 @@ func copyFdStream(fd1 int, fd2 int) error {
 
 			writeSize, err := syscall.Write(writeFd, b[:readSize])
 			if err != nil {
+				log.Errorf("Write")
 				return err
 			}
 			log.Debugf("Write(size=%d)", writeSize)
