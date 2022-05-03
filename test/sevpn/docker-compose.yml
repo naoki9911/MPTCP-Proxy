@@ -1,0 +1,110 @@
+version: '3'
+services:
+  server-srv:
+    build:
+      context: ../../
+      dockerfile: ./test/Dockerfile
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - "./server-srv/run.sh:/run.sh:ro"
+    networks:
+      server-vpn2srv:
+        ipv4_address: 10.100.1.3
+
+  server-vpn:
+    image: siomiz/softethervpn
+    environment:
+      - SPW=test
+      - USERS=test:test
+    cap_add:
+      - NET_ADMIN
+      - SYSLOG
+    volumes:
+      - "./server-vpn/vpn_server.config:/usr/vpnserver/vpn_server.config:ro"
+    #ports:
+      #- 5555:5555
+    networks:
+      server-proxy2vpn:
+        ipv4_address: 10.100.0.3
+      server-vpn2srv:
+        ipv4_address: 10.100.1.2
+
+  server-proxy:
+    build:
+      context: ../../
+      dockerfile: ./test/Dockerfile
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - "./server-proxy/run.sh:/run.sh:ro"
+    networks:
+      network_a:
+        ipv4_address: 10.102.0.2
+      network_b:
+        ipv4_address: 10.102.1.2
+      server-proxy2vpn:
+        ipv4_address: 10.100.0.2
+      
+  client-proxy:
+    build:
+      context: ../../
+      dockerfile: ./test/Dockerfile
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - "./client-proxy/run.sh:/run.sh:ro"
+      - "./dump:/dump"
+    #ports:
+      #- 4444:4444
+    networks:
+      network_a:
+        ipv4_address: 10.102.0.3
+      network_b:
+        ipv4_address: 10.102.1.3
+      client-proxy2vpn:
+        ipv4_address: 10.101.0.2
+
+  client-vpn:
+    image: siomiz/softethervpn
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYSLOG
+    volumes:
+      - "./client-vpn/run.sh:/run.sh:ro"
+      - "./client-vpn/vpn_client.config:/usr/vpnclient/vpn_client.config:ro"
+      # dummy config
+      - "./server-vpn/vpn_server.config:/usr/vpnserver/vpn_server.config:ro"
+    command: /bin/bash /run.sh
+    networks:
+      client-proxy2vpn:
+        ipv4_address: 10.101.0.3
+
+
+networks:
+  server-proxy2vpn:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.100.0.0/24
+  server-vpn2srv:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.100.1.0/24
+  client-proxy2vpn:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.101.0.0/24
+  network_a:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.102.0.0/24
+  network_b:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.102.1.0/24
