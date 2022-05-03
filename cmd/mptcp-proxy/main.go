@@ -239,20 +239,44 @@ func copyFdStream(fd1 int, fd2 int) error {
 	}
 	defer syscall.Close(epfd)
 
+	epWritefd, err := syscall.EpollCreate1(0)
+	if err != nil {
+		return err
+	}
+	defer syscall.Close(epWritefd)
+
 	var eventFd1 syscall.EpollEvent
 	var eventFd2 syscall.EpollEvent
-	events := make([]syscall.EpollEvent, 10)
+	var eventWriteFd1 syscall.EpollEvent
+	var eventWriteFd2 syscall.EpollEvent
 
-	eventFd1.Events = syscall.EPOLLIN | syscall.EPOLLOUT | syscall.EPOLLRDHUP
+	events := make([]syscall.EpollEvent, 10)
+	eventsWrite := make([]syscall.EpollEvent, 10)
+
+	eventFd1.Events = syscall.EPOLLIN | syscall.EPOLLRDHUP
 	eventFd1.Fd = int32(fd1)
 	err = syscall.EpollCtl(epfd, syscall.EPOLL_CTL_ADD, fd1, &eventFd1)
 	if err != nil {
 		return err
 	}
 
-	eventFd2.Events = syscall.EPOLLIN | syscall.EPOLLOUT | syscall.EPOLLRDHUP
+	eventFd2.Events = syscall.EPOLLIN | syscall.EPOLLRDHUP
 	eventFd2.Fd = int32(fd2)
 	err = syscall.EpollCtl(epfd, syscall.EPOLL_CTL_ADD, fd2, &eventFd2)
+	if err != nil {
+		return err
+	}
+
+	eventWriteFd1.Events = syscall.EPOLLOUT
+	eventWriteFd1.Fd = int32(fd1)
+	err = syscall.EpollCtl(epWritefd, syscall.EPOLL_CTL_ADD, fd1, &eventWriteFd1)
+	if err != nil {
+		return err
+	}
+
+	eventWriteFd2.Events = syscall.EPOLLOUT
+	eventWriteFd2.Fd = int32(fd2)
+	err = syscall.EpollCtl(epWritefd, syscall.EPOLL_CTL_ADD, fd2, &eventWriteFd2)
 	if err != nil {
 		return err
 	}
@@ -268,8 +292,19 @@ func copyFdStream(fd1 int, fd2 int) error {
 			log.Error("EpollWait")
 			return err
 		}
-
 		waitEvents := events[:nevents]
+
+		nevents, err = syscall.EpollWait(epWritefd, eventsWrite, 0)
+		if err != nil {
+			// goroutine can cause EINTR
+			if err == syscall.EINTR {
+				continue
+			}
+			log.Error("EpollWait")
+			return err
+		}
+		eventsWritable := eventsWrite[:nevents]
+
 		close := isEpollEventFlagged(waitEvents, fd1, syscall.EPOLLRDHUP)
 		close = close || isEpollEventFlagged(waitEvents, fd2, syscall.EPOLLRDHUP)
 
@@ -284,7 +319,7 @@ func copyFdStream(fd1 int, fd2 int) error {
 			}
 			close = false
 
-			if !isEpollEventFlagged(waitEvents, writeFd, syscall.EPOLLOUT) {
+			if !isEpollEventFlagged(eventsWritable, writeFd, syscall.EPOLLOUT) {
 				continue
 			}
 
