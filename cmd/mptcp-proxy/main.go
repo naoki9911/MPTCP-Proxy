@@ -15,11 +15,12 @@ const IPPROTO_MPTCP = 262
 const BUF_SIZE = 65536
 
 var (
-	remoteAddr  net.IP
-	remotePort  int
-	localPort   int
-	mode        string
-	transparent bool
+	remoteAddr   net.IP
+	remotePort   int
+	localPort    int
+	mode         string
+	transparent  bool
+	disableMPTCP bool
 )
 
 func main() {
@@ -32,6 +33,7 @@ func main() {
 	flag.BoolVarP(&transparent, "transparent", "t", false, "Enable transparent mode")
 	flag.StringVarP(&mode, "mode", "m", "", "specify mode (server or client)")
 	flag.IntVarP(&localPort, "port", "p", 0, "local bind port")
+	flag.BoolVar(&disableMPTCP, "disable-mptcp", false, "Disable MPTCP")
 	var rAddr *string = flag.StringP("remote", "r", "", "remote address (ex. 127.0.0.1:8080)")
 	flag.Parse()
 
@@ -75,10 +77,14 @@ func main() {
 	}
 
 	log.Infof("starting proxy...")
-	if mode == "client" {
-		doProxy(syscall.IPPROTO_IP, IPPROTO_MPTCP)
-	} else if mode == "server" {
-		doProxy(IPPROTO_MPTCP, syscall.IPPROTO_IP)
+	if disableMPTCP {
+		doProxy(syscall.IPPROTO_IP, syscall.IPPROTO_IP)
+	} else {
+		if mode == "client" {
+			doProxy(syscall.IPPROTO_IP, IPPROTO_MPTCP)
+		} else if mode == "server" {
+			doProxy(IPPROTO_MPTCP, syscall.IPPROTO_IP)
+		}
 	}
 
 	log.Errorf("mode %s is not supported", mode)
